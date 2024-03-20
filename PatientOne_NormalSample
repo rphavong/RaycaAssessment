@@ -1,0 +1,309 @@
+---
+title: "Rayca Assessment - Patient1 Normal Sample Report"
+author: "Robet Phavong"
+date: "2024-03-15"
+output:
+  pdf_document:
+    latex_engine: pdflatex
+    keep_tex: true
+    number_sections: true
+    toc: true
+    toc_depth: 3
+    fig_caption: true
+---
+
+## Set options for printing reports
+```{r Printoptions}
+# this will make sure that the code doesn't run off the page when printing a report
+knitr::opts_chunk$set(tidy.opts = list(width.cutoff = 50), tidy = TRUE)
+```
+
+## Load required packages and vcf file
+```{r}
+# Load the relevant libraries
+library(VariantAnnotation)
+library(BiocGenerics)
+library(dplyr)
+library(GenomicRanges)
+
+# Load the VCF file
+vcf_file <- "/Users/robertphavongurquidez/Desktop/Rayca Assessment/Rayca Assessment/normal_sample.deepvariant.vcf.gz"
+
+# Read the VCF file
+vcf_data <- readVcf(vcf_file)
+
+# Explore vcf_data
+head(vcf_data)
+header(vcf_data)
+samples(header(vcf_data)) # Sample name: "patient1_normal_sample"
+geno(header(vcf_data))
+
+# Genomics positions
+head(rowRanges(vcf_data), 3)
+```
+
+
+# Using pegas package to convert VCF file into a dataframe
+```{r}
+# Load the package pegas that can create your dataframe from the VCF file
+library(pegas)
+
+# Create variant dataframe from VCF file
+vcf_data_frame <- VCFloci(vcf_file, what = "all", chunk.size = 1e9, quiet = FALSE)
+
+# Explore the vcf_file 
+head(VCFheader(vcf_file))
+VCFlabels(vcf_file)
+VCFloci(vcf_file)
+
+# Explore the vcf_data_frame
+summary(vcf_data_frame)
+
+# Determine total number of SNPs in each chromosome
+sum(vcf_data_frame$CHROM == "chr1")
+
+# Determine all possible chromosomes within vcf file
+unique(vcf_data_frame$CHROM)
+
+## From the unique() function, there are data for all autosome chromosomes (chr1 through 22), and there are data for both types of sex chromosomes X and Y; therefore, this patient sample is a MALE.
+## Gender: MALE 
+```
+
+
+# Determine the ClinVar annotations from vcf_file using wANNOVAR resource using the hg38 as the reference genome. Additionally, use the exome summary data produced from wANNOVAR
+```{r}
+wannovar_exome <- read.csv("query.output.exome_summary.csv")
+wannovar_genome <- read.csv("query.output.genome_summary.csv")
+
+# Determine that wANNOVAR "Start" and "End" (which are the positions) are equal, as this will determine the "POS" for the created 'vcf_data_frame' in preparation for merging dataframes.
+pos_start <- wannovar_exome$Start
+pos_end <- wannovar_exome$End
+
+# Check if Start and End have the same observations
+if(all(pos_start == pos_end)) {
+  print("The two variables have the same observations.")
+} else {
+  print("The two variables do not have the same observations.")
+}
+
+# Find indices where pos_start and pos_end do not match
+mismatch_indices <- which(pos_start != pos_end)
+
+# Extract rows where pos_start and pos_end do not match
+mismatch_rows <- wannovar_exome[mismatch_indices, ]
+
+# Count the number of mismatched rows
+count(mismatch_rows)
+
+# Note: there are 254 Start and End positions that do not match. 
+```
+
+# Extract data of interest into new dataframe from the wannovar_exome data
+```{r}
+# Extract columns 1:10 and 30:37
+columns_1_to_10 <- wannovar_exome[, 1:10]
+columns_30_to_37 <- wannovar_exome[, 30:37]
+
+# Extract columns with names containing "gnomAD"
+gnomAD_columns <- wannovar_exome[, grep("gnomAD", names(wannovar_exome))]
+
+# Extract columns with names "Otherinfo" and "Otherinfo.12"
+otherinfo_columns <- wannovar_exome[, c("Otherinfo", "Otherinfo.12")]
+
+# Combine all extracted columns into a new dataframe
+extracted_data <- cbind(columns_1_to_10, columns_30_to_37, gnomAD_columns, otherinfo_columns)
+```
+
+
+# Merge vcf_data_frame and extracted_data based on positions matched
+```{r}
+# Merge dataframes based on matching positions of chromosome and position, looking at "Start" position
+merged_data_start <- merge(vcf_data_frame, extracted_data, by.x = c("CHROM", "POS"), by.y = c("Chr","Start"), all.x = TRUE)
+
+# Merge dataframes based on matching positions of chromosome and position, looking at "End" position
+merged_data_end <- merge(vcf_data_frame, extracted_data, by.x = c("CHROM", "POS"), by.y = c("Chr","End"), all.x = TRUE)
+
+# Analyze columns "ID" and "INFO" to see if they contain information of value
+## Starting with the merged_data_start dataframe
+unique(merged_data_start$ID)
+unique(merged_data_start$INFO)
+
+# Next check with the merged_data_end dataframe
+unique(merged_data_end$ID)
+unique(merged_data_end$INFO)
+
+## Since both ID and INFO contain no info from the vcf_data, will remove these. Similarly, I will remove the repeated information of of "ref" and "alt" that was obtained from the wANNOVAR when searching for ClinVar and other useful information.
+
+## Start position data
+# Define the columns to keep in the merged_data_start
+columns_to_keep_start <- setdiff(names(merged_data_start), c("ID", "INFO", "Ref", "Alt"))
+
+# Subset the merged dataframe to keep only the desired columns
+merged_data_start <- merged_data_start[, columns_to_keep_start]
+
+## End position data
+# Define the columns to keep in the merged_data_end
+columns_to_keep_end <- setdiff(names(merged_data_end), c("ID", "INFO", "Ref", "Alt"))
+
+# Subset the merged dataframe to keep only the desired columns
+merged_data_end <- merged_data_end[, columns_to_keep_end]
+
+
+## Retitle "Otherinfo" and "Otherinfo.12" to be more descriptive of this information
+
+# Rename variables for the merged_data_start
+merged_data_start <- merged_data_start %>%
+  rename(GTdescription = Otherinfo, Genotype = Otherinfo.12)
+
+# Rename variables for the merged_data_end
+merged_data_end <- merged_data_end %>%
+  rename(GTdescription = Otherinfo, Genotype = Otherinfo.12)
+```
+
+
+# Condense Clinical Report developed, such that only variants that had observable data with ClinVar annotations developed from wANNOVAR
+```{r}
+## Start
+# Remove rows where all observations are NA
+shortened_data_start <- merged_data_start[complete.cases(merged_data_start), ]
+# Display the first 5 rows of the dataframe
+head(shortened_data_start, n = 5)
+
+## End
+# Remove rows where all observations are NA
+shortened_data_end <- merged_data_end[complete.cases(merged_data_end), ]
+# Display the first 5 rows of the dataframe
+head(shortened_data_end, n = 5)
+```
+
+
+# Create CSV files of the patient1_normal_sample parsed
+```{r}
+## Start
+# Define the file name
+file_name_start <- "ClinicalReport_Patient1_NormalSample_Start.csv"
+
+# Write the dataframe to a CSV file
+write.csv(shortened_data_start, file = file_name_start, row.names = FALSE)
+
+## End
+# Define the file name
+file_name_end <- "ClinicalReport_Patient1_NormalSample_End.csv"
+
+# Write the dataframe to a CSV file
+write.csv(shortened_data_start, file = file_name_end, row.names = FALSE)
+```
+
+
+
+# Start position Clinical Report Summary
+```{r}
+# Sample Clinical Report
+
+## Introduction
+
+## This report presents the analysis of DeepVariant VCF files for Male Patient1 Normal Sample. The analysis was conducted to assess compliance with ACMG guidelines and to identify potentially clinically significant variants.
+
+## Summary of Findings
+
+# Total number of variants analyzed
+total_variants_start <- nrow(shortened_data_start)
+cat("Total number of variants analyzed:", total_variants_start, "\n")
+
+# Summary statistics of variant classifications
+pathogenic_count_start <- sum(shortened_data_start$ClinVar_SIG == "Pathogenic")
+likely_pathogenic_count_start <- sum(shortened_data_start$ClinVar_SIG == "Likely pathogenic")
+uncertainsig_count_start <- sum(shortened_data_start$ClinVar_SIG == "Uncertain significance")
+likely_benign_count_start <- sum(shortened_data_start$ClinVar_SIG == "Likely benign")
+benign_count_start <- sum(shortened_data_start$ClinVar_SIG == "Benign")
+
+cat("Summary statistics of variant classifications\n")
+cat("  - Pathogenic:", pathogenic_count_start, "\n")
+cat("  - Likely pathogenic:", likely_pathogenic_count_start, "\n")
+cat("  - Uncertain significance:", uncertainsig_count_start, "\n")
+cat("  - Likely benign:", likely_benign_count_start, "\n")
+cat("  - Benign:", benign_count_start, "\n")
+
+# Subset observations where ClinVar_SIG is 'Pathogenic' or 'Likely pathogenic'
+pathogenic_variants_start <- shortened_data_start[shortened_data_start$ClinVar_SIG %in% c('Pathogenic', 'Likely pathogenic'), ]
+
+# View the subsetted data
+print(pathogenic_variants_start)
+
+## Visualizations
+
+### Histogram of Variant Frequencies
+# Define the frequencies
+classification_counts_start <- c(pathogenic_count_start, likely_pathogenic_count_start, uncertainsig_count_start, likely_benign_count_start, benign_count_start)
+classification_names_start <- c("Pathogenic", "Likely pathogenic", "Uncertain significance", "Likely benign", "Benign")
+
+# Create a data frame
+classification_data_start <- data.frame(Classification = classification_names_start, Frequency = classification_counts_start)
+
+# Plot the histogram
+barplot_start <- barplot(classification_data_start$Frequency, names.arg = classification_data_start$Classification, 
+        main = "Variant Classification Frequencies from Start", 
+        xlab = "Classification", ylab = "Frequency", col = "skyblue", 
+        border = "black", ylim = c(0, max(classification_counts_start) + 100),
+        cex.names = 0.6)
+# Add total values on the bars
+text(x = barplot_start, y = classification_counts_start + 1, 
+     labels = classification_counts_start, pos = 3, col = "black")
+```
+
+
+
+# End position Clinical Report Summary
+```{r}
+# Sample Clinical Report
+
+## Introduction
+
+## This report presents the analysis of DeepVariant VCF files for Male Patient1 Normal Sample. The analysis was conducted to assess compliance with ACMG guidelines and to identify potentially clinically significant variants.
+
+## Summary of Findings
+
+# Total number of variants analyzed
+total_variants_end <- nrow(shortened_data_end)
+cat("Total number of variants analyzed:", total_variants_end, "\n")
+
+# Summary statistics of variant classifications
+pathogenic_count_end <- sum(shortened_data_end$ClinVar_SIG == "Pathogenic")
+likely_pathogenic_count_end <- sum(shortened_data_end$ClinVar_SIG == "Likely pathogenic")
+uncertainsig_count_end <- sum(shortened_data_end$ClinVar_SIG == "Uncertain significance")
+likely_benign_count_end <- sum(shortened_data_end$ClinVar_SIG == "Likely benign")
+benign_count_end <- sum(shortened_data_end$ClinVar_SIG == "Benign")
+
+cat("Summary statistics of variant classifications\n")
+cat("  - Pathogenic:", pathogenic_count_end, "\n")
+cat("  - Likely pathogenic:", likely_pathogenic_count_end, "\n")
+cat("  - Uncertain significance:", uncertainsig_count_end, "\n")
+cat("  - Likely benign:", likely_benign_count_end, "\n")
+cat("  - Benign:", benign_count_end, "\n")
+
+# Subset observations where ClinVar_SIG is 'Pathogenic' or 'Likely pathogenic'
+pathogenic_variants_end <- shortened_data_end[shortened_data_end$ClinVar_SIG %in% c('Pathogenic', 'Likely pathogenic'), ]
+
+# View the subsetted data
+print(pathogenic_variants_end)
+
+## Visualizations
+
+### Histogram of Variant Frequencies
+# Define the frequencies
+classification_counts_end <- c(pathogenic_count_end, likely_pathogenic_count_end, uncertainsig_count_end, likely_benign_count_end, benign_count_end)
+classification_names_end <- c("Pathogenic", "Likely pathogenic", "Uncertain significance", "Likely benign", "Benign")
+
+# Create a data frame
+classification_data_end <- data.frame(Classification = classification_names_end, Frequency = classification_counts_end)
+
+# Plot the histogram
+barplot_end <- barplot(classification_data_end$Frequency, names.arg = classification_data_end$Classification, 
+        main = "Variant Classification Frequencies from End", 
+        xlab = "Classification", ylab = "Frequency", col = "skyblue", 
+        border = "black", ylim = c(0, max(classification_counts_end) + 100),
+        cex.names = 0.6)
+# Add total values on the bars
+text(x = barplot_end, y = classification_counts_end + 1, 
+     labels = classification_counts_end, pos = 3, col = "black")
+``` 
