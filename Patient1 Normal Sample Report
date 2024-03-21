@@ -98,20 +98,22 @@ count(mismatch_rows)
 # Note: there are 254 Start and End positions that do not match. 
 ```
 
+
 # Extract data of interest into new dataframe from the wannovar_exome data
 ```{r}
-# Extract columns 1:10 and 30:37
-columns_1_to_10 <- wannovar_exome[, 1:10]
-columns_30_to_37 <- wannovar_exome[, 30:37]
+# Extract columns 1:7, 9:11,17,and 30:34
+columns_1_to_7 <- wannovar_exome[, 1:7]
+columns_9_to_11 <- wannovar_exome[, 9:11]
+columns_30_to_34 <- wannovar_exome[, 30:34]
 
-# Extract columns with names containing "gnomAD"
-gnomAD_columns <- wannovar_exome[, grep("gnomAD", names(wannovar_exome))]
+# Extract columns with names containing "gnomAD_genome_ALL"
+gnomAD_column <- wannovar_exome[, grep("gnomAD_genome_ALL", names(wannovar_exome))]
 
 # Extract columns with names "Otherinfo" and "Otherinfo.12"
 otherinfo_columns <- wannovar_exome[, c("Otherinfo", "Otherinfo.12")]
 
 # Combine all extracted columns into a new dataframe
-extracted_data <- cbind(columns_1_to_10, columns_30_to_37, gnomAD_columns, otherinfo_columns)
+extracted_data <- cbind(columns_1_to_7, columns_9_to_11, columns_30_to_34, gnomAD_column, otherinfo_columns)
 ```
 
 
@@ -192,6 +194,35 @@ file_name_end <- "ClinicalReport_Patient1_NormalSample_End.csv"
 
 # Write the dataframe to a CSV file
 write.csv(shortened_data_start, file = file_name_end, row.names = FALSE)
+```
+
+
+# Create table of patient1_normal_sample parsed 
+```{r}
+# Load required library
+library(flextable)
+
+## Start
+# Table only the first 20 rows, since I was not able to find a suitable package that can print all rows
+start_first_20 <- slice(shortened_data_start, 1:20)
+
+# Create the flextable table
+start_first_20 <- flextable(start_first_20)
+
+# Print the table
+print(start_first_20)
+
+## End
+# Table only the first 20 rows, since I was not able to find a suitable package that can print all rows
+end_first_20 <- slice(shortened_data_end, 1:20)
+
+# Create the flextable table
+end_first_20 <- flextable(end_first_20)
+
+# Print the table
+print(end_first_20)
+
+## NOTE: For some reason, I cannot find an R package that prints out a nice table of my parsed Clinical Report. Apologies on the list-like format, on my R markdown, the table looks great and easy to visualize in R. 
 ```
 
 
